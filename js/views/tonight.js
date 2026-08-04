@@ -8,6 +8,7 @@ import * as E from "../engine.js";
 import { bus } from "../bus.js";
 import { ZONES, TRIGGER_TAGS } from "../seed.js";
 import { addPhoto } from "../photos.js";
+import { icon, TYPE_ICON, NIGHT_ICON } from "../icons.js";
 
 // transient per-date UI state (check-in stage etc.)
 const ui = { date: null, stage: null, feel: null, flags: [], zones: [], triggers: [], flareTrend: null };
@@ -39,7 +40,7 @@ export function renderTonight(root) {
   // header pill area
   root.append(
     h("div", { class: "nt-head" },
-      h("span", { class: `pill ${type}` }, pillLabel(type, state)),
+      h("span", { class: `pill ${type}` }, icon(NIGHT_ICON[state.flare.active ? "rescue" : type] || "leaf"), pillLabel(type, state)),
       h("div", { class: "why" }, reason),
       !isToday && h("div", { class: "past-band" }, `← Viewing ${human(date)} · tap ‹ › or swipe for other days`),
     )
@@ -174,11 +175,21 @@ function setMakeup(date, night, val) {
   bus.rerender();
 }
 
+function stepIconName(s) {
+  if (s.kind === "timer") return "clock";
+  if (s.productId) {
+    const p = DB.products.shelf.find((x) => x.id === s.productId);
+    if (p && TYPE_ICON[p.type]) return TYPE_ICON[p.type];
+  }
+  return "sparkle";
+}
+
 function stepRow(state, night, date, s) {
   const done = stepDone(night, s.id);
   if (s.kind === "timer") return timerRow(night, date, s, done);
   return h("div", { class: `step ${done ? "done" : ""} ${s.optional ? "optional" : ""}`, onclick: () => toggleStep(state, night, date, s.id) },
     h("span", { class: "box" }),
+    icon(stepIconName(s), "ic step-ic"),
     h("span", { class: "step-body" },
       h("span", { class: "lbl" }, s.label, s.optional && h("span", { class: "tag" }, "optional")),
       s.product && h("div", { class: "prod" }, s.product),
@@ -209,7 +220,7 @@ function timerRow(night, date, s, done) {
   const right = h("span", { class: "timer-right" });
 
   if (done) {
-    row.append(h("span", { class: "box" }), body);
+    row.append(h("span", { class: "box" }), icon("clock", "ic step-ic"), body);
     row.onclick = () => toggleStep(DB.state, night, date, s.id);
   } else if (running) {
     const count = h("div", { class: "count" });

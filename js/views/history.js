@@ -7,6 +7,7 @@ import { ZONES } from "../seed.js";
 import { faceMap } from "./tonight.js";
 import { pinIsSet, isUnlocked, tryUnlock } from "../photos.js";
 import { renderPhotos } from "./photosview.js";
+import { icon } from "../icons.js";
 
 const ui = { month: null, photosOpen: false, pinTry: "" };
 
@@ -27,7 +28,7 @@ export function renderHistory(root) {
 
   const photoCount = DB.photos.photos.length;
   root.append(h("div", { class: "prow", onclick: () => { ui.photosOpen = true; bus.rerender(); } },
-    h("span", { style: { fontSize: "20px" } }, "🔒"),
+    icon("camera", "ic p-ic"),
     h("span", { style: { flex: 1 } },
       h("span", { class: "nm" }, "Progress photos"),
       h("div", { class: "sub" }, photoCount ? `${photoCount} photo${photoCount > 1 ? "s" : ""}` : "None yet")),

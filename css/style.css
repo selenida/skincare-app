@@ -268,6 +268,22 @@ textarea.inputline { resize: vertical; }
 .rd-v { flex: 1; }
 .rd-note { font-size: 14px; font-style: italic; color: var(--text); padding-top: 6px; }
 
+/* icons */
+.ic { display: inline-flex; flex: none; }
+.ic svg { width: 22px; height: 22px; }
+.step-ic { margin-top: 2px; color: #57524B; }
+.step.done .step-ic { opacity: .4; }
+.pill { display: inline-flex; align-items: center; gap: 6px; }
+.pill .ic svg { width: 15px; height: 15px; }
+.p-ic { color: #57524B; }
+.p-ic svg { width: 24px; height: 24px; }
+.tab-ic svg { width: 23px; height: 23px; }
+.empty-ic { display: flex; justify-content: center; padding: 16px 0 4px; color: #6B6B66; }
+.empty-ic svg { width: 60px; height: 60px; }
+.onboard-ic { display: flex; justify-content: flex-start; padding: 4px 0; color: #57524B; }
+.onboard-ic svg { width: 84px; height: 84px; }
+.disc.center { text-align: center; }
+
 /* swipe-to-delete */
 .swipe-wrap { position: relative; overflow: hidden; border-radius: var(--radius); }
 .swipe-wrap .prow { position: relative; z-index: 1; }

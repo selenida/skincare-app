@@ -11,12 +11,13 @@ import { renderTonight } from "./views/tonight.js";
 import { renderProducts } from "./views/products.js";
 import { renderHistory } from "./views/history.js";
 import { renderMore } from "./views/more.js";
+import { icon } from "./icons.js";
 
 const TABS = [
-  ["#/tonight", "Tonight", renderTonight, moonIcon],
-  ["#/products", "Products", renderProducts, bottleIcon],
-  ["#/history", "History", renderHistory, calIcon],
-  ["#/more", "More", renderMore, dotsIcon],
+  ["#/tonight", "Tonight", renderTonight, () => icon("moon", "ic tab-ic")],
+  ["#/products", "Products", renderProducts, () => icon("jar", "ic tab-ic")],
+  ["#/history", "History", renderHistory, () => icon("calendar", "ic tab-ic")],
+  ["#/more", "More", renderMore, () => icon("dots", "ic tab-ic")],
 ];
 
 let backfillQueue = [];
@@ -93,6 +94,7 @@ function renderFirstRun() {
   const rootEl = document.getElementById("app");
   rootEl.replaceChildren(
     h("div", { class: "screen onboard" },
+      h("div", { class: "onboard-ic" }, icon("mask")),
       h("h1", { class: "onboard-title" }, "Your routine, decided for you"),
       h("p", {}, "Every night this app tells you what's on — retinal, azelaic or recovery — and paces the progression from how your skin actually responds."),
       h("div", { class: "card" },
@@ -206,16 +208,5 @@ function backfillModal(date) {
       h("button", { class: "choice", onclick: () => answer("unknown") }, "Can't remember")),
     h("p", { class: "disc" }, "“Can't remember” is neutral — it neither builds nor breaks your record."));
 }
-
-// ---- tab icons ----
-function svgEl(paths, extra = "") {
-  const span = h("span");
-  span.innerHTML = `<svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${paths}${extra}</svg>`;
-  return span.firstChild;
-}
-function moonIcon() { return svgEl('<path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a6.7 6.7 0 0 0 11 11Z"/>'); }
-function bottleIcon() { return svgEl('<rect x="6" y="3" width="12" height="18" rx="3"/><path d="M6 8h12"/>'); }
-function calIcon() { return svgEl('<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/>'); }
-function dotsIcon() { return svgEl('<path d="M5 12h.01M12 12h.01M19 12h.01"/>'); }
 
 boot();

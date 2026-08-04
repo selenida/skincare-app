@@ -7,6 +7,7 @@ import { DB, saveProducts, saveReviews, saveState } from "../state.js";
 import { bus } from "../bus.js";
 import { PRODUCT_KINDS, CONFLICT_VERDICTS, REVIEW_TAGS } from "../seed.js";
 import { COOLDOWN } from "../engine.js";
+import { icon, TYPE_ICON } from "../icons.js";
 
 const ui = { mode: null, editId: null, review: null, add: null, openReviewId: null, screen: null };
 
@@ -112,7 +113,7 @@ function swipeDelete(row, onDelete) {
 // ---- want to try ----
 function renderWantToTryList(root) {
   const wtt = DB.products.wantToTry;
-  if (!wtt.length) root.append(h("p", { class: "disc" }, "Empty. Park anything you're curious about here — it's offered when something runs out."));
+  if (!wtt.length) root.append(h("div", { class: "empty-ic" }, icon("sparkle")), h("p", { class: "disc center" }, "Empty. Park anything you're curious about here — it's offered when something runs out."));
   for (const w of wtt) {
     const row = h("div", { class: "prow" },
       h("span", { style: { flex: 1 } }, h("span", { class: "nm" }, w.name),
@@ -132,7 +133,7 @@ function renderWantToTryList(root) {
 // ---- past favourites ----
 function renderPastList(root) {
   const past = DB.products.pastFavorites || (DB.products.pastFavorites = []);
-  if (!past.length) root.append(h("p", { class: "disc" }, "Products you loved before the app existed. Review them so future-you remembers why — they're offered whenever something runs out."));
+  if (!past.length) root.append(h("div", { class: "empty-ic" }, icon("heart")), h("p", { class: "disc center" }, "Products you loved before the app existed. Review them so future-you remembers why — they're offered whenever something runs out."));
   for (const f of past) {
     const review = f.reviewId ? DB.reviews.reviews.find((r) => r.id === f.reviewId) : null;
     const open = review && ui.openReviewId === review.id;
@@ -164,7 +165,7 @@ function renderPastList(root) {
 // ---- archive ----
 function renderArchiveList(root) {
   const reviews = DB.reviews.reviews.filter((r) => !r.pastFavorite);
-  if (!reviews.length) root.append(h("p", { class: "disc" }, "Nothing finished yet. When a product runs out, its review lands here."));
+  if (!reviews.length) root.append(h("div", { class: "empty-ic" }, icon("jar")), h("p", { class: "disc center" }, "Nothing finished yet. When a product runs out, its review lands here."));
   for (const r of [...reviews].reverse()) {
     const never = DB.products.neverAgain.some((n) => n.reviewId === r.id);
     const open = ui.openReviewId === r.id;
@@ -214,6 +215,7 @@ function productRow(p) {
   const queued = p.status === "queued";
   const both = (p.slots || []).some((s) => s.startsWith("am-")) && (p.slots || []).some((s) => s.startsWith("pm-"));
   const row = h("div", { class: `prow ${locked || queued ? "locked" : ""}` },
+    icon(TYPE_ICON[p.type] || "sparkle", "ic p-ic"),
     h("span", { style: { flex: 1 } },
       h("span", { class: "nm" }, p.name),
       h("div", { class: "sub" },
