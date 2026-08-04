@@ -268,6 +268,16 @@ textarea.inputline { resize: vertical; }
 .rd-v { flex: 1; }
 .rd-note { font-size: 14px; font-style: italic; color: var(--text); padding-top: 6px; }
 
+/* swipe-to-delete */
+.swipe-wrap { position: relative; overflow: hidden; border-radius: var(--radius); }
+.swipe-wrap .prow { position: relative; z-index: 1; }
+.swipe-del {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 88px;
+  background: var(--alert); color: #fff; font-weight: 640; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 0 var(--radius) var(--radius) 0; cursor: pointer;
+}
+
 /* extras */
 .step.extra { border-style: dashed; cursor: default; }
 .extra-btn {

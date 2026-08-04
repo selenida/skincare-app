@@ -1,5 +1,6 @@
-// views/products.js — shelf, add flow, ran-out → review, want-to-try,
-// past favourites, never-again, review archive with expandable details.
+// views/products.js — shelf, add flow, ran-out → review, and three sub-screens:
+// want-to-try, past favourites, finished & reviewed. List rows delete by
+// swipe-left (reveal), never by a stray tap.
 
 import { h, humanShort, addDays, daysBetween } from "../util.js";
 import { DB, saveProducts, saveReviews, saveState } from "../state.js";
@@ -7,7 +8,7 @@ import { bus } from "../bus.js";
 import { PRODUCT_KINDS, CONFLICT_VERDICTS, REVIEW_TAGS } from "../seed.js";
 import { COOLDOWN } from "../engine.js";
 
-const ui = { mode: null, editId: null, review: null, add: null, openReviewId: null };
+const ui = { mode: null, editId: null, review: null, add: null, openReviewId: null, screen: null };
 
 // iOS number inputs reject the decimal separator on many keyboard locales,
 // and Finnish keyboards give a comma. Text + inputmode=decimal, parse both.
@@ -19,11 +20,16 @@ function parsePrice(v) {
 export function renderProducts(root) {
   if (ui.mode === "add") return renderAdd(root);
   if (ui.mode === "review") return renderReview(root);
+  if (ui.screen === "wtt") return subScreen(root, "Want to try", renderWantToTryList);
+  if (ui.screen === "past") return subScreen(root, "Past favourites", renderPastList);
+  if (ui.screen === "archive") return subScreen(root, "Finished & reviewed", renderArchiveList);
 
   const shelf = DB.products.shelf;
+  // A product can live in both routines (same bottle, two slots) — it shows
+  // under both headings.
   const groups = [
     ["Evening", (p) => (p.slots || []).some((s) => s.startsWith("pm-"))],
-    ["Morning", (p) => (p.slots || []).every((s) => s.startsWith("am-")) && (p.slots || []).length],
+    ["Morning", (p) => (p.slots || []).some((s) => s.startsWith("am-"))],
   ];
   for (const [label, match] of groups) {
     root.append(h("div", { class: "sec" }, label));
@@ -32,64 +38,133 @@ export function renderProducts(root) {
     }
   }
 
-  root.append(h("button", { class: "addbtn", onclick: () => { ui.mode = "add"; ui.add = { name: "", kind: null }; bus.rerender(); } }, "+ Add a product"));
+  root.append(h("button", { class: "addbtn", onclick: () => { ui.mode = "add"; ui.add = { name: "", kind: null, when: "pm" }; bus.rerender(); } }, "+ Add a product"));
 
-  renderWantToTry(root);
-  renderPastFavorites(root);
-  renderArchive(root);
+  const wtt = DB.products.wantToTry.length;
+  const past = (DB.products.pastFavorites || []).length;
+  const arch = DB.reviews.reviews.filter((r) => !r.pastFavorite).length;
+  root.append(h("div", { class: "sec" }, "Lists"));
+  root.append(navRow("Want to try", wtt, () => { ui.screen = "wtt"; bus.rerender({ resetScroll: true }); }));
+  root.append(navRow("Past favourites", past, () => { ui.screen = "past"; bus.rerender({ resetScroll: true }); }));
+  root.append(navRow("Finished & reviewed", arch, () => { ui.screen = "archive"; bus.rerender({ resetScroll: true }); }));
+}
+
+function navRow(label, count, onclick) {
+  return h("div", { class: "mrow", onclick },
+    h("span", {}, h("span", { class: "nm" }, label),
+      h("div", { class: "sub" }, count ? `${count} item${count > 1 ? "s" : ""}` : "Empty")),
+    h("span", { class: "arw" }, "›"));
+}
+
+function subScreen(root, title, body) {
+  root.append(h("div", { class: "daynav" },
+    h("button", { class: "btn-sm", onclick: () => { ui.screen = null; ui.openReviewId = null; bus.rerender({ resetScroll: true }); } }, "‹ Products")));
+  root.append(h("h2", { class: "view-title" }, title));
+  body(root);
+}
+
+// ---- swipe-left to delete ----
+// Reveal an 88px Delete behind the row; tap it to delete. Vertical scrolling
+// stays native (touch-action: pan-y). A tap on a swiped-open row closes it.
+function swipeDelete(row, onDelete) {
+  const wrap = h("div", { class: "swipe-wrap" });
+  const del = h("button", { class: "swipe-del", onclick: (e) => { e.stopPropagation(); onDelete(); } }, "Delete");
+  wrap.append(del, row);
+  let x0 = null, cur = 0, open = false, dragging = false;
+  row.style.touchAction = "pan-y";
+  row.addEventListener("pointerdown", (e) => { x0 = e.clientX; dragging = false; });
+  row.addEventListener("pointermove", (e) => {
+    if (x0 == null) return;
+    const dx = e.clientX - x0;
+    if (Math.abs(dx) > 8) dragging = true;
+    if (dragging) {
+      cur = Math.max(-88, Math.min(0, (open ? -88 : 0) + dx));
+      row.style.transform = `translateX(${cur}px)`;
+    }
+  });
+  const settle = () => {
+    if (x0 == null) return;
+    open = cur < -44;
+    cur = open ? -88 : 0;
+    row.style.transition = "transform .15s";
+    row.style.transform = `translateX(${cur}px)`;
+    setTimeout(() => (row.style.transition = ""), 180);
+    x0 = null;
+    // The drag's own ghost click (if any) fires immediately; a deliberate tap
+    // on Delete comes later. Browsers don't reliably fire a click after a
+    // drag, so the flag can't wait for one.
+    setTimeout(() => { dragging = false; }, 80);
+  };
+  row.addEventListener("pointerup", settle);
+  row.addEventListener("pointercancel", settle);
+  // capture on the wrap runs before the row's own click handlers, so a drag
+  // or an open row never triggers tap actions like expansion
+  wrap.addEventListener("click", (e) => {
+    if (dragging) { e.stopPropagation(); e.preventDefault(); dragging = false; return; }
+    if (open && e.target !== del) {
+      e.stopPropagation(); e.preventDefault();
+      open = false; cur = 0; row.style.transform = "translateX(0)";
+    }
+  }, true);
+  return wrap;
 }
 
 // ---- want to try ----
-function renderWantToTry(root) {
-  root.append(h("div", { class: "sec" }, "Want to try"));
+function renderWantToTryList(root) {
   const wtt = DB.products.wantToTry;
   if (!wtt.length) root.append(h("p", { class: "disc" }, "Empty. Park anything you're curious about here — it's offered when something runs out."));
   for (const w of wtt) {
-    root.append(h("div", { class: "prow" },
-      h("span", { style: { flex: 1 } }, h("span", { class: "nm" }, w.name), w.note && h("div", { class: "sub" }, w.note)),
-      h("button", { class: "btn-sm ghost", onclick: () => { DB.products.wantToTry = wtt.filter((x) => x !== w); saveProducts(); bus.rerender(); } }, "✕")));
+    const row = h("div", { class: "prow" },
+      h("span", { style: { flex: 1 } }, h("span", { class: "nm" }, w.name),
+        h("div", { class: "sub" }, `Added ${humanShort(w.addedDate)}`)));
+    root.append(swipeDelete(row, () => {
+      DB.products.wantToTry = DB.products.wantToTry.filter((x) => x !== w);
+      saveProducts(); bus.rerender();
+    }));
   }
   root.append(listInput("Add something to try…", (name) => {
     DB.products.wantToTry.push({ name, addedDate: bus.todayIso, note: null });
     saveProducts();
   }));
+  root.append(h("p", { class: "disc" }, "Swipe a row left to delete it."));
 }
 
 // ---- past favourites ----
-function renderPastFavorites(root) {
-  root.append(h("div", { class: "sec" }, "Past favourites"));
+function renderPastList(root) {
   const past = DB.products.pastFavorites || (DB.products.pastFavorites = []);
   if (!past.length) root.append(h("p", { class: "disc" }, "Products you loved before the app existed. Review them so future-you remembers why — they're offered whenever something runs out."));
   for (const f of past) {
     const review = f.reviewId ? DB.reviews.reviews.find((r) => r.id === f.reviewId) : null;
-    const open = ui.openReviewId === (review?.id || "past-" + f.name);
+    const open = review && ui.openReviewId === review.id;
     const row = h("div", { class: `prow ${open ? "open" : ""}` },
       h("span", { style: { flex: 1 } },
         h("span", { class: "nm" }, f.name),
         h("div", { class: "sub" }, review ? "★".repeat(review.rating) + "☆".repeat(5 - review.rating) + ` · rebuy: ${review.wouldRebuy}` : "Not reviewed yet")),
       review
-        ? h("span", { class: "badge act" }, "fave")
-        : h("button", { class: "btn-sm", onclick: (e) => { e.stopPropagation(); startReview({ id: null, name: f.name, type: f.type || "other" }, "past"); } }, "Review"),
-      h("button", { class: "btn-sm ghost", onclick: (e) => { e.stopPropagation(); if (confirm(`Remove ${f.name} from past favourites?`)) { DB.products.pastFavorites = past.filter((x) => x !== f); saveProducts(); bus.rerender(); } } }, "✕"));
+        ? h("span", { class: "arw" }, open ? "⌄" : "›")
+        : h("button", { class: "btn-sm", onclick: (e) => { e.stopPropagation(); startReview({ id: null, name: f.name, type: f.type || "other" }, "past"); } }, "Review"));
     row.onclick = () => {
       if (!review) return;
       ui.openReviewId = open ? null : review.id;
       bus.rerender();
     };
-    root.append(row);
-    if (open && review) root.append(reviewDetails(review));
+    root.append(swipeDelete(row, () => {
+      DB.products.pastFavorites = past.filter((x) => x !== f);
+      saveProducts(); bus.rerender();
+    }));
+    if (open) root.append(reviewDetails(review));
   }
   root.append(listInput("Add a past favourite…", (name) => {
     DB.products.pastFavorites.push({ name, addedDate: bus.todayIso, reviewId: null });
     saveProducts();
   }));
+  root.append(h("p", { class: "disc" }, "Tap a reviewed one to reread it. Swipe left to delete."));
 }
 
 // ---- archive ----
-function renderArchive(root) {
+function renderArchiveList(root) {
   const reviews = DB.reviews.reviews.filter((r) => !r.pastFavorite);
-  if (!reviews.length) return;
-  root.append(h("div", { class: "sec" }, "Finished & reviewed"));
+  if (!reviews.length) root.append(h("p", { class: "disc" }, "Nothing finished yet. When a product runs out, its review lands here."));
   for (const r of [...reviews].reverse()) {
     const never = DB.products.neverAgain.some((n) => n.reviewId === r.id);
     const open = ui.openReviewId === r.id;
@@ -118,9 +193,8 @@ function reviewDetails(r) {
   if (r.outcome && r.outcome !== "nothing-yet") add("Afterwards", r.outcome === "switched" ? `switched to ${r.switchedTo || "?"}` : "bought it again");
   if (r.openedDate) add("Opened", humanShort(r.openedDate));
   if (r.finishedDate) add("Reviewed", humanShort(r.finishedDate));
-  const panel = h("div", { class: "prow-open" }, h("div", { class: "prow-detail" }, rows,
+  return h("div", { class: "prow-open" }, h("div", { class: "prow-detail" }, rows,
     r.note && h("p", { class: "rd-note" }, "“", r.note, "”")));
-  return panel;
 }
 
 function listInput(placeholder, onAdd) {
@@ -138,6 +212,7 @@ function listInput(placeholder, onAdd) {
 function productRow(p) {
   const locked = p.locked;
   const queued = p.status === "queued";
+  const both = (p.slots || []).some((s) => s.startsWith("am-")) && (p.slots || []).some((s) => s.startsWith("pm-"));
   const row = h("div", { class: `prow ${locked || queued ? "locked" : ""}` },
     h("span", { style: { flex: 1 } },
       h("span", { class: "nm" }, p.name),
@@ -146,6 +221,7 @@ function productRow(p) {
         queued ? `Queued to start ${humanShort(p.startOn)}` :
         p.replacesUntilFinished ? `Standing in for ${nameOf(p.replacesUntilFinished)} until finished` :
         p.concentration || typeLabel(p.type),
+        both ? " · morning + evening" : "",
         p.openedDate ? ` · opened ${humanShort(p.openedDate)}` : "")),
     h("span", { class: `badge ${p.type === "retinoid" || p.type === "azelaic" ? "act" : ""}` }, badgeFor(p)));
   row.onclick = () => { ui.editId = ui.editId === p.id ? null : p.id; bus.rerender(); };
@@ -221,7 +297,6 @@ function renderReview(root) {
         h("button", { class: `choice ${r.outcome === v ? "primary" : ""}`, onclick: () => { r.outcome = v; bus.rerender(); } }, lbl)))));
 
     if (r.outcome === "switched") {
-      // suggestions: want-to-try AND past favourites
       const options = [
         ...DB.products.wantToTry.map((w) => w.name),
         ...(DB.products.pastFavorites || []).map((f) => f.name),
@@ -267,7 +342,7 @@ function finishReview(r, lasted) {
     const fav = (DB.products.pastFavorites || []).find((f) => f.name === r.productName);
     if (fav) fav.reviewId = review.id;
     saveProducts(); saveReviews();
-    ui.mode = null; ui.review = null; ui.openReviewId = review.id;
+    ui.mode = null; ui.review = null; ui.openReviewId = review.id; ui.screen = "past";
     bus.rerender();
     return;
   }
@@ -281,7 +356,7 @@ function finishReview(r, lasted) {
   if (r.outcome === "switched" && r.switchedTo) {
     DB.products.wantToTry = DB.products.wantToTry.filter((w) => w.name !== r.switchedTo);
     ui.mode = "add";
-    ui.add = { name: r.switchedTo, kind: null, replacingSlots: p ? p.slots : null };
+    ui.add = { name: r.switchedTo, kind: null, when: "pm", replacingSlots: p ? p.slots : null };
     saveProducts(); saveReviews();
     bus.rerender();
     return;
@@ -340,6 +415,13 @@ function renderAdd(root) {
         h("p", {}, verdict.text)));
     }
 
+    // gentle products can join either routine — ask instead of assuming evening
+    if (a.kind.tier === 1 && !a.kind.am) {
+      root.append(field("Which routine?", h("div", { class: "choices" },
+        h("button", { class: `choice ${a.when === "pm" ? "primary" : ""}`, onclick: () => { a.when = "pm"; bus.rerender(); } }, "Evening"),
+        h("button", { class: `choice ${a.when === "am" ? "primary" : ""}`, onclick: () => { a.when = "am"; bus.rerender(); } }, "Morning"))));
+    }
+
     if (a.kind.tier >= 2 && a.kind.type !== "retinoid") {
       root.append(h("div", { class: "card" },
         h("p", {}, h("strong", {}, "Patch test first? "),
@@ -380,7 +462,7 @@ function reuseProduct(productId, when) {
     kind: "ok",
     title: `${p.name} — added to your ${when === "am" ? "morning" : "evening"} routine`,
     body: when === "am"
-      ? "Same bottle, no duplicate. It shows on the morning reference card."
+      ? "Same bottle, no duplicate. It now shows under Morning on your shelf and on the morning reference card."
       : "Same bottle, no duplicate. It appears as a step just before your moisturizer.",
   }];
   bus.rerender();
@@ -401,7 +483,8 @@ function verdictTitle(level) {
 function saveNew(a, startOn) {
   const k = a.kind;
   const id = a.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40) + "-" + Math.floor(Math.random() * 100);
-  const slots = a.replacingSlots || (k.am ? ["am-extra"] : k.tier === 1 ? ["pm-extra"] : []);
+  const morning = k.am || (k.tier === 1 && a.when === "am");
+  const slots = a.replacingSlots || (morning ? ["am-extra"] : k.tier === 1 ? ["pm-extra"] : []);
   const p = {
     id, name: a.name.trim(), type: k.type, tier: k.tier, slots,
     status: startOn ? "queued" : "in-use", startOn: startOn || null,
@@ -414,6 +497,6 @@ function saveNew(a, startOn) {
   DB.products.shelf.push(p);
   saveProducts(); saveState();
   ui.mode = null; ui.add = null;
-  bus.events = [{ kind: "ok", title: `${p.name} added`, body: startOn ? `Queued — it starts on ${humanShort(startOn)}.` : k.tier >= 2 ? "Phased in gently, on nights away from your retinal." : "In the routine from now on." }];
+  bus.events = [{ kind: "ok", title: `${p.name} added`, body: startOn ? `Queued — it starts on ${humanShort(startOn)}.` : morning ? "On the morning reference card from tomorrow." : k.tier >= 2 ? "Phased in gently, on nights away from your retinal." : "In the evening routine from tonight." }];
   bus.rerender();
 }
