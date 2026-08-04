@@ -24,6 +24,7 @@ export const SEED_PRODUCTS = {
     { id: "skin1004-hyalu-cica",   name: "SKIN1004 Hyalu-Cica Sunscreen",     type: "sunscreen",    tier: 1, slots: ["am-spf"], status: "in-use" },
   ],
   wantToTry: [],
+  pastFavorites: [],
   neverAgain: [],
   templates: {
     retinal: {
@@ -101,7 +102,7 @@ export const AM_REFERENCE = {
 export const SEED_STATE = {
   version: 1,
   startDate: null, // set on first launch
-  settings: { dayRolloverHour: 4, showReasoning: true, photoIntervalDays: 84, disclaimerAccepted: false, baselineDone: false },
+  settings: { dayRolloverHour: 4, showReasoning: true, photoIntervalDays: 84, disclaimerAccepted: false, baselineDone: false, startAdjusted: false },
   retinal: {
     freq: 2, targetFreq: 3, phase: "INIT", sandwich: "FULL",
     lastRetinalDate: null, patternIndex: 0,

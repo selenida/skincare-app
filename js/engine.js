@@ -639,6 +639,7 @@ export function answerMissedNight(state, nights, d, answer, scheduledType) {
 // for the true first night (caller fills in the ticked steps and stores it).
 export function adjustStart(state, newStartDate) {
   const r = state.retinal;
+  state.settings.startAdjusted = true;
   state.startDate = newStartDate;
   r.dwellStartDate = newStartDate;
   r.lastRetinalDate = newStartDate;

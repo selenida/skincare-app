@@ -12,6 +12,8 @@ import { composeRoutine, resolveNightType } from "../schedule.js";
 const ui = { open: null, tokenMsg: null };
 
 export function renderMore(root) {
+  // deep-link from the Tonight hint card
+  if (bus.moreOpenSection) { ui.open = bus.moreOpenSection; bus.moreOpenSection = null; }
   root.append(section("routine", "Edit my routine", "Add, reorder or remove steps", renderEditor));
   root.append(section("start", "Start date", `Week 1 began ${humanShort(DB.state.startDate)}`, renderStart));
   root.append(section("morning", "Morning routine", "Reference only — not tracked", renderMorning));
@@ -102,6 +104,10 @@ function renderMorning(panel) {
   for (const s of steps) {
     panel.append(h("div", { class: "estep" },
       h("span", { class: "estep-lbl" }, s.label, s.optional ? " (optional)" : "", s.note && h("div", { class: "sub" }, s.note))));
+  }
+  // anything she's added to her mornings herself
+  for (const p of DB.products.shelf.filter((x) => x.status === "in-use" && (x.slots || []).includes("am-extra"))) {
+    panel.append(h("div", { class: "estep" }, h("span", { class: "estep-lbl" }, p.name, h("div", { class: "sub" }, "Added by you"))));
   }
   if (oilInUse) panel.append(h("p", { class: "disc" }, "Order shifts when C.E.O. Glow runs out — the Maelove serum moves to step 2."));
 }

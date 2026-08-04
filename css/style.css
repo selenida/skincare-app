@@ -261,6 +261,21 @@ textarea.inputline { resize: vertical; }
 }
 .compare-caps { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--text-muted); }
 
+/* review details */
+.rd-row { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.rd-row:last-of-type { border-bottom: none; }
+.rd-l { color: var(--text-muted); width: 88px; flex: none; font-size: 13px; padding-top: 1px; }
+.rd-v { flex: 1; }
+.rd-note { font-size: 14px; font-style: italic; color: var(--text); padding-top: 6px; }
+
+/* extras */
+.step.extra { border-style: dashed; cursor: default; }
+.extra-btn {
+  text-align: center; font-size: 14px; color: var(--text-muted); cursor: pointer;
+  padding: 12px; border: 1px dashed var(--border); border-radius: var(--radius);
+  background: none; min-height: 48px; width: 100%;
+}
+
 /* more */
 .mrow {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);

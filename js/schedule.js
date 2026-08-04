@@ -126,6 +126,20 @@ export function composeRoutine(products, type, ctx = {}) {
       });
     }
   }
+
+  // Products added to the evening routine without a template slot ("pm-extra")
+  // render just before the final cream, on every PM night type.
+  const already = new Set(steps.map((s) => s.productId).filter(Boolean));
+  const extras = products.shelf.filter(
+    (p) => p.status === "in-use" && !p.locked && (p.slots || []).includes("pm-extra") && !already.has(p.id)
+  );
+  if (extras.length) {
+    const creamAt = steps.findIndex((s) => s.slot === "pm-cream");
+    const at = creamAt >= 0 ? creamAt : steps.length;
+    extras.forEach((p, i) => steps.splice(at + i, 0, {
+      id: "extra-" + p.id, label: p.name, product: p.name, productId: p.id,
+    }));
+  }
   return steps;
 }
 

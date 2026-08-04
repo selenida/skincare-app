@@ -73,6 +73,12 @@ function boot() {
 
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
+    // When a new version takes control, reload once so updates land on the
+    // FIRST reopen instead of needing the close-open-close-open dance.
+    let refreshed = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!refreshed) { refreshed = true; location.reload(); }
+    });
   }
 
   if (firstRun || !state.settings.disclaimerAccepted) {

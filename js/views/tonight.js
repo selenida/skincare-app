@@ -50,6 +50,18 @@ export function renderTonight(root) {
     root.append(eventCard(ev));
   }
 
+  // first-week hint: the schedule anchors on first app open, which may not be
+  // the real first retinal night. Shown until used or dismissed.
+  if (isToday && !state.settings.startAdjusted && !(state.declines || {})["start-hint"] &&
+      daysBetween(state.startDate, today) <= 6) {
+    root.append(h("div", { class: "card sugg info" },
+      h("h3", {}, "Did week 1 really start on " + human(state.startDate) + "?"),
+      h("p", {}, "The app began counting the day you first opened it. If your first retinal night was actually earlier, fix the start date and the whole schedule shifts to match."),
+      h("div", { class: "choices" },
+        h("button", { class: "choice primary", onclick: () => { bus.moreOpenSection = "start"; bus.navigate("#/more"); } }, "Fix the start date"),
+        h("button", { class: "choice", onclick: () => { state.declines = state.declines || {}; state.declines["start-hint"] = today; saveState(); bus.rerender(); } }, "It's right"))));
+  }
+
   // suggestion (today only, before/after steps depending on type)
   if (isToday) {
     const sugg = E.computeSuggestion(state, nights, today, {
@@ -87,6 +99,17 @@ export function renderTonight(root) {
         night.woreMakeup ? "wore makeup/SPF today ✓" : "no makeup/SPF today", " — tap to change")
     );
     for (const s of steps) root.append(stepRow(state, night, date, s));
+
+    // deviations: anything extra she used tonight, logged as part of the night
+    for (const [i, ex] of (night.extras || []).entries()) {
+      root.append(h("div", { class: "step done extra" },
+        h("span", { class: "box" }),
+        h("span", { class: "step-body" },
+          h("span", { class: "lbl" }, ex.label, h("span", { class: "tag" }, "extra")),
+          h("div", { class: "prod" }, "Added tonight")),
+        h("button", { class: "btn-sm ghost", onclick: (e) => { e.stopPropagation(); night.extras.splice(i, 1); setNight(date, night); bus.rerender(); } }, "✕")));
+    }
+    root.append(extraAdder(night, date));
 
     // check-in / flare check-in when all required steps are done
     const complete = steps.filter((s) => !s.optional).every((s) => stepDone(night, s.id));
@@ -446,6 +469,40 @@ function answerBackfill(date, answer, type) {
   saveState();
   setNight(date, entry, { message: `Backfill ${date} — ${answer}` });
   bus.rerender();
+}
+
+// ---- deviations ----
+let extraOpen = false;
+function extraAdder(night, date) {
+  if (!extraOpen) {
+    return h("button", { class: "extra-btn", onclick: () => { extraOpen = true; bus.rerender(); } },
+      "+ Something extra tonight");
+  }
+  // suggestions: shelf products not already in tonight's steps, want-to-try, past favourites
+  const inTonight = new Set((stepsFor(DB.state, night) || []).map((s) => s.productId).filter(Boolean));
+  const options = [
+    ...DB.products.shelf.filter((p) => p.status === "in-use" && !p.locked && !inTonight.has(p.id)).map((p) => p.name),
+    ...DB.products.wantToTry.map((w) => w.name),
+    ...(DB.products.pastFavorites || []).map((f) => f.name),
+  ];
+  const input = h("input", { class: "inputline", placeholder: "What are you using?", list: "extra-list", autofocus: true });
+  const add = () => {
+    if (!input.value.trim()) return;
+    night.extras = night.extras || [];
+    night.extras.push({ label: input.value.trim(), at: new Date().toISOString() });
+    setNight(date, night, { message: `Night ${date} — extra: ${input.value.trim()}` });
+    extraOpen = false;
+    bus.rerender();
+  };
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+  return h("div", { class: "card" },
+    h("h3", { style: { fontSize: "16px" } }, "Something extra tonight"),
+    h("p", { class: "sub" }, "Logged with this night — so if your skin reacts, you'll know what was different."),
+    h("datalist", { id: "extra-list" }, ...options.map((o) => h("option", { value: o }))),
+    input,
+    h("div", { class: "choices" },
+      h("button", { class: "choice", onclick: () => { extraOpen = false; bus.rerender(); } }, "Cancel"),
+      h("button", { class: "choice primary", onclick: add }, "Add")));
 }
 
 // ---- shared bits ----
