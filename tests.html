@@ -319,6 +319,17 @@ t("itch three times in a month triggers the derm card", () => {
   eq(s.escalation.active, true);
 });
 
+// ---------- start-date adjustment ----------
+t("start adjusted to yesterday: that night completed, tonight recovery, next retinal +3", () => {
+  const s = mkState(); // START = Tue 2026-08-04
+  const entry = E.adjustStart(s, "2026-08-03"); // real first night was Monday
+  eq(entry.status, "completed");
+  eq(entry.type, "retinal");
+  eq(s.startDate, "2026-08-03");
+  eq(resolveNightType(s, "2026-08-04").type, "recovery", "tonight must not be retinal");
+  eq(nextRetinalDate(s), "2026-08-06", "next retinal is Thursday, Mon+3");
+});
+
 // ---------- sandwich revert ----------
 t("grade-2 within 28d of dropping the buffer restores it", () => {
   const s = mkState(), n = {};

@@ -633,6 +633,29 @@ export function answerMissedNight(state, nights, d, answer, scheduledType) {
   return { type: scheduledType, status: "unknown", backfilled: true };
 }
 
+// ---- start-date adjustment ----
+// For when the real first retinal night happened before the app was first
+// opened. Re-anchors the whole schedule and returns a completed night entry
+// for the true first night (caller fills in the ticked steps and stores it).
+export function adjustStart(state, newStartDate) {
+  const r = state.retinal;
+  state.startDate = newStartDate;
+  r.dwellStartDate = newStartDate;
+  r.lastRetinalDate = newStartDate;
+  r.patternIndex = 0; // first night consumed no gap; next = +pattern[0]
+  state.lastChange.retinal = newStartDate;
+  return {
+    type: "retinal",
+    reason: "Retinal night — your first",
+    status: "completed",
+    backfilled: true,
+    woreMakeup: false,
+    retinalCounted: true,
+    sandwich: r.sandwich,
+    steps: [],
+  };
+}
+
 // ---- sandwich auto-revert (R8 guard) ----
 export function sandwichRevertIfNeeded(state, nights, date) {
   const r = state.retinal;

@@ -1,17 +1,19 @@
 // views/more.js — routine editor, breaks, morning card, GitHub, PIN, export.
 
-import { h, download, humanShort, daysBetween } from "../util.js";
-import { DB, saveProducts, saveState, exportAll, getToken, setToken, allNights } from "../state.js";
+import { h, download, humanShort, daysBetween, addDays } from "../util.js";
+import { DB, saveProducts, saveState, exportAll, getToken, setToken, allNights, getNight, setNight } from "../state.js";
 import { bus } from "../bus.js";
 import { sync, drain, testConnection, restoreAll } from "../sync.js";
-import { startBreak, endBreak } from "../engine.js";
+import { startBreak, endBreak, adjustStart } from "../engine.js";
 import { AM_REFERENCE } from "../seed.js";
 import { setPin, pinIsSet } from "../photos.js";
+import { composeRoutine, resolveNightType } from "../schedule.js";
 
 const ui = { open: null, tokenMsg: null };
 
 export function renderMore(root) {
   root.append(section("routine", "Edit my routine", "Add, reorder or remove steps", renderEditor));
+  root.append(section("start", "Start date", `Week 1 began ${humanShort(DB.state.startDate)}`, renderStart));
   root.append(section("morning", "Morning routine", "Reference only — not tracked", renderMorning));
   root.append(section("break", "Take a break", breakSub(), renderBreak));
   root.append(h("div", { class: "sec" }, "Data"));
@@ -58,6 +60,39 @@ function renderEditor(panel) {
     panel.append(add);
   }
   panel.append(h("p", { class: "disc" }, "The retinal, buffer and wait steps carry the safety logic — removing them removes the guidance too."));
+}
+
+// ---- start date ----
+function renderStart(panel) {
+  panel.append(h("p", { class: "sub" },
+    "The app started counting the night you first opened it. If your real first retinal night was earlier, set it here — that night gets logged as fully completed and the whole schedule shifts to match."));
+  const input = h("input", { class: "inputline", type: "date", value: DB.state.startDate, min: addDays(bus.todayIso, -14), max: addDays(bus.todayIso, -1) });
+  panel.append(input);
+  panel.append(h("div", { class: "choices" },
+    h("button", { class: "choice primary", onclick: () => {
+      const d = input.value;
+      if (!d || d >= bus.todayIso) return alert("Pick a date before today.");
+      if (d < addDays(bus.todayIso, -14)) return alert("That's more than two weeks back — tell Claude instead, this tool isn't meant for that.");
+      if (!confirm(`Set ${humanShort(d)} as Week 1, Night 1 (retinal, completed)? Tonight's plan is recalculated — any steps already ticked tonight reset.`)) return;
+
+      const entry = adjustStart(DB.state, d);
+      entry.steps = composeRoutine(DB.products, "retinal", {
+        woreMakeup: false, sandwichFull: true,
+        peptideOnRetinalNights: DB.state.retinal.peptideOnRetinalNights,
+      }).map((s) => ({ id: s.id, done: true, at: null }));
+      setNight(d, entry, { message: `Backfill ${d} — first retinal night (start-date adjustment)` });
+
+      // re-resolve tonight under the corrected schedule
+      const tonight = getNight(bus.todayIso);
+      if (!tonight || tonight.status !== "completed") {
+        const { type, reason } = resolveNightType(DB.state, bus.todayIso);
+        setNight(bus.todayIso, { type, reason, status: "open", steps: [], woreMakeup: tonight ? tonight.woreMakeup : null });
+      }
+      saveState();
+      ui.open = null;
+      bus.events = [{ kind: "ok", title: `Week 1 now starts ${humanShort(d)}`, body: "That night is logged as your first retinal night, and tonight has been recalculated to match." }];
+      bus.navigate("#/tonight");
+    } }, "Save")));
 }
 
 // ---- morning ----
