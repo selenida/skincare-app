@@ -8,6 +8,13 @@ import { COOLDOWN } from "../engine.js";
 
 const ui = { mode: null, editId: null, review: null, add: null };
 
+// iOS number inputs reject the decimal separator on many keyboard locales,
+// and Finnish keyboards give a comma. Text + inputmode=decimal, parse both.
+function parsePrice(v) {
+  const n = Number(String(v ?? "").trim().replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+}
+
 export function renderProducts(root) {
   if (ui.mode === "add") return renderAdd(root);
   if (ui.mode === "review") return renderReview(root);
@@ -84,7 +91,7 @@ function productRow(p) {
   const wrap = h("div", { class: "prow-open" }, row);
   row.classList.add("open");
   const openedInput = h("input", { class: "inputline", type: "date", value: p.openedDate || "" });
-  const priceInput = h("input", { class: "inputline", type: "number", inputmode: "decimal", placeholder: "Price €", value: p.price ?? "" });
+  const priceInput = h("input", { class: "inputline", type: "text", inputmode: "decimal", placeholder: "Price € — e.g. 12,50", value: p.price ?? "" });
   wrap.append(
     h("div", { class: "prow-detail" },
       h("label", { class: "flabel" }, "Opened"), openedInput,
@@ -92,7 +99,7 @@ function productRow(p) {
       h("div", { class: "choices" },
         h("button", { class: "choice", onclick: (e) => { e.stopPropagation();
           p.openedDate = openedInput.value || null;
-          p.price = priceInput.value ? Number(priceInput.value) : null;
+          p.price = parsePrice(priceInput.value);
           saveProducts(); ui.editId = null; bus.rerender(); } }, "Save"),
         !locked && !queued && h("button", { class: "choice warn-line", onclick: (e) => { e.stopPropagation(); startReview(p); } }, "Ran out"),
       )));
@@ -139,7 +146,7 @@ function renderReview(root) {
 
   const lasted = r.openedDate ? daysBetween(r.openedDate, bus.todayIso) : null;
   if (lasted) root.append(field("How long it lasted", h("div", { class: "inputline" }, `${lasted} days (${(lasted / 30).toFixed(1)} months)`)));
-  const priceInput = h("input", { class: "inputline", type: "number", inputmode: "decimal", placeholder: "Optional", value: r.price ?? "" });
+  const priceInput = h("input", { class: "inputline", type: "text", inputmode: "decimal", placeholder: "Optional — e.g. 12,50", value: r.price ?? "" });
   root.append(field("Price €", priceInput));
   const noteInput = h("textarea", { class: "inputline", rows: 2, placeholder: "Optional note — 'great in winter, too heavy for summer'…" });
   noteInput.value = r.note;
@@ -161,7 +168,7 @@ function renderReview(root) {
     h("button", { class: "choice", onclick: () => { ui.mode = null; ui.review = null; bus.rerender(); } }, "Cancel"),
     h("button", { class: `choice primary ${r.rating && r.wouldRebuy ? "" : "disabled"}`, onclick: () => {
       if (!r.rating || !r.wouldRebuy) return;
-      r.price = priceInput.value ? Number(priceInput.value) : null;
+      r.price = parsePrice(priceInput.value);
       r.note = noteInput.value || null;
       finishReview(r, lasted);
     } }, "Save review")));

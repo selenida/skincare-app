@@ -64,9 +64,9 @@ function boot() {
 
   prunePendingPayloads(today);
 
-  bus.rerender = render;
+  bus.rerender = (opts) => render(opts);
   bus.navigate = (hash) => { location.hash = hash; };
-  window.addEventListener("hashchange", () => { bus.events = []; bus.viewDate = null; render(); });
+  window.addEventListener("hashchange", () => { bus.events = []; bus.viewDate = null; render({ resetScroll: true }); });
 
   sync.onChange = renderHeaderOnly;
   initSyncTriggers();
@@ -108,7 +108,16 @@ function route() {
   return TABS.find(([r]) => hash.startsWith(r)) || TABS[0];
 }
 
-function render() {
+let lastEventsRef = null;
+
+function render(opts = {}) {
+  // Keep the scroll position across in-place rerenders (every tap rerenders).
+  // Jump to top only on tab/day changes, or when new engine event cards appear
+  // at the top and need to be seen.
+  const newEvents = bus.events.length && bus.events !== lastEventsRef;
+  lastEventsRef = bus.events;
+  const y = window.scrollY;
+
   const rootEl = document.getElementById("app");
   const [, label, view] = route();
   rootEl.replaceChildren();
@@ -125,7 +134,9 @@ function render() {
   }
   rootEl.append(screen);
   renderTabs(rootEl);
-  window.scrollTo(0, 0);
+
+  if (opts.resetScroll || newEvents) window.scrollTo(0, 0);
+  else requestAnimationFrame(() => window.scrollTo(0, y));
 }
 
 function renderHeader(rootEl, label) {

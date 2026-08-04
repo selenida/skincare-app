@@ -495,8 +495,8 @@ export function faceMap(selected, onToggle) {
 function navRow(date, today) {
   const minDate = addDays(today, -7);
   return h("div", { class: "daynav" },
-    h("button", { class: "btn-sm", disabled: date <= minDate ? "" : null, onclick: () => { bus.viewDate = addDays(date, -1); bus.rerender(); } }, "‹ previous night"),
-    date < today ? h("button", { class: "btn-sm", onclick: () => { bus.viewDate = addDays(date, 1); bus.rerender(); } }, "next ›") : h("span"),
+    h("button", { class: "btn-sm", disabled: date <= minDate ? "" : null, onclick: () => { bus.viewDate = addDays(date, -1); bus.rerender({ resetScroll: true }); } }, "‹ previous night"),
+    date < today ? h("button", { class: "btn-sm", onclick: () => { bus.viewDate = addDays(date, 1); bus.rerender({ resetScroll: true }); } }, "next ›") : h("span"),
   );
 }
 
@@ -513,7 +513,7 @@ function attachSwipe(root, date, today) {
     x0 = null;
     if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx)) return;
     const cur = bus.viewDate || bus.todayIso;
-    if (dx > 0 && cur > addDays(bus.todayIso, -7)) { bus.viewDate = addDays(cur, -1); bus.rerender(); }
-    if (dx < 0 && cur < bus.todayIso) { bus.viewDate = addDays(cur, 1); bus.rerender(); }
+    if (dx > 0 && cur > addDays(bus.todayIso, -7)) { bus.viewDate = addDays(cur, -1); bus.rerender({ resetScroll: true }); }
+    if (dx < 0 && cur < bus.todayIso) { bus.viewDate = addDays(cur, 1); bus.rerender({ resetScroll: true }); }
   }, { passive: true });
 }
