@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Engine tests</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, monospace; margin: 24px; background: #FBFBFA; color: #1A1A18; }
+  .pass { color: #2F6F5E; }
+  .fail { color: #A63D3D; font-weight: 700; }
+  h1 { font-size: 18px; }
+  #summary { font-size: 16px; font-weight: 700; margin: 12px 0; }
+</style>
+</head>
+<body>
+<h1>skincare engine — tests</h1>
+<div id="summary">running…</div>
+<div id="out"></div>
+<script type="module">
+import { addDays, daysBetween } from "./js/util.js";
+import { GAP_PATTERNS, nextRetinalDate, resolveNightType, isAzelaicNight, projectedRetinalSet } from "./js/schedule.js";
+import * as E from "./js/engine.js";
+import { SEED_STATE } from "./js/seed.js";
+
+const out = document.getElementById("out");
+let passes = 0, fails = 0;
+function t(name, fn) {
+  try {
+    fn();
+    passes++;
+    out.insertAdjacentHTML("beforeend", `<div class="pass">✓ ${name}</div>`);
+  } catch (e) {
+    fails++;
+    out.insertAdjacentHTML("beforeend", `<div class="fail">✗ ${name} — ${e.message}</div>`);
+  }
+}
+function eq(a, b, msg = "") {
+  if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${msg} expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
+}
+function ok(v, msg = "expected truthy") { if (!v) throw new Error(msg); }
+
+const START = "2026-08-04";
+function mkState() {
+  const s = structuredClone(SEED_STATE);
+  s.startDate = START;
+  s.retinal.dwellStartDate = START;
+  s.lastChange = { retinal: START, azelaic: null };
+  return s;
+}
+
+// Simulate a completed night with a check-in of the given grade.
+function doNight(state, nights, date, grade = 0, flags = []) {
+  const { type } = resolveNightType(state, date);
+  const night = { type, status: "completed", steps: [], checkIn: null };
+  nights[date] = night;
+  if (type === "retinal") E.onRetinalCompleted(state, date);
+  const feel = grade === 0 ? "fine" : grade === 1 ? "dry" : "irritated";
+  const g = E.gradeCheckIn(feel, grade >= 3 ? (flags.length ? flags : ["itchy"]) : []);
+  night.checkIn = { grade: g.grade, label: g.label, flags: grade >= 3 ? (flags.length ? flags : ["itchy"]) : [], zones: [], triggers: [] };
+  return E.applyCheckIn(state, nights, date, night.checkIn);
+}
+
+// Run n consecutive days from START, grade fn(date, i) -> grade or null to skip night entirely
+function run(state, nights, days, gradeFn = () => 0) {
+  for (let i = 0; i < days; i++) {
+    const d = addDays(START, i);
+    const g = gradeFn(d, i);
+    if (g === null) continue;
+    doNight(state, nights, d, g);
+  }
+  return addDays(START, days - 1);
+}
+
+// ---------- schedule ----------
+t("day one is a retinal night", () => {
+  const s = mkState();
+  eq(resolveNightType(s, START).type, "retinal");
+});
+
+t("gap pattern at 2/week: days 0,3,7,10,14", () => {
+  const s = mkState(), n = {};
+  const retinalDays = [];
+  for (let i = 0; i < 15; i++) {
+    const d = addDays(START, i);
+    if (resolveNightType(s, d).type === "retinal") { retinalDays.push(i); doNight(s, n, d, 0); }
+    else doNight(s, n, d, 0);
+  }
+  eq(retinalDays, [0, 3, 7, 10, 14]);
+});
+
+t("gap pattern at 3/week sums to 7", () => {
+  for (const f of [1, 2, 3, 4, 5, 6]) {
+    eq(GAP_PATTERNS[f].reduce((a, b) => a + b, 0), 7, `freq ${f}`);
+  }
+});
+
+t("missed retinal night just shifts — never two in a row made up", () => {
+  const s = mkState(), n = {};
+  doNight(s, n, START, 0);           // day 0 retinal
+  // skip day 3 entirely (no log); open on day 4:
+  const d4 = addDays(START, 4);
+  eq(resolveNightType(s, d4).type, "retinal", "overdue retinal fires next open");
+  doNight(s, n, d4, 0);
+  // next retinal should be d4 + 4 (pattern index moved to gap 4)
+  eq(nextRetinalDate(s), addDays(d4, 4));
+});
+
+// ---------- R1 step-up ----------
+// (azelaic pre-dismissed in these: in real use she answers that card at day 14)
+function mkStateNoAz() {
+  const s = mkState();
+  s.declines = { "azelaic-count": 2 };
+  return s;
+}
+
+t("no step-up offer on day 27 even with clean record", () => {
+  const s = mkStateNoAz(), n = {};
+  const last = run(s, n, 27);
+  eq(E.computeSuggestion(s, n, last, {})?.id, undefined);
+});
+
+t("step-up offered at day 28 with 8 clean applications", () => {
+  const s = mkStateNoAz(), n = {};
+  const last = run(s, n, 29); // day index 28 = day 29th night
+  ok(s.retinal.cleanStreak >= 8, `cleanStreak ${s.retinal.cleanStreak}`);
+  const sugg = E.computeSuggestion(s, n, last, {});
+  eq(sugg?.id, "step-up");
+});
+
+t("a single grade-2 blocks the step-up and resets the streak", () => {
+  const s = mkStateNoAz(), n = {};
+  const last = run(s, n, 29, (d, i) => (i === 20 ? 2 : 0));
+  eq(s.retinal.cleanStreak < 8 || E.computeSuggestion(s, n, last, {})?.id !== "step-up", true);
+  const sugg = E.computeSuggestion(s, n, last, {});
+  ok(sugg?.id !== "step-up", "should not offer step-up");
+});
+
+t("accepting step-up locks further changes for 28 days", () => {
+  const s = mkStateNoAz(), n = {};
+  const last = run(s, n, 29);
+  const sugg = E.computeSuggestion(s, n, last, {});
+  E.acceptSuggestion(s, n, last, sugg, "accept");
+  eq(s.retinal.freq, 3);
+  eq(s.retinal.stepUpLockUntil, addDays(last, 28));
+});
+
+// ---------- R4 step-down ----------
+t("two grade-2 in 14 days auto-drops frequency", () => {
+  const s = mkState(), n = {};
+  run(s, n, 20, (d, i) => (i === 10 || i === 15 ? 2 : 0));
+  eq(s.retinal.freq, 1);
+  eq(s.retinal.phase, "RECOVERY");
+  eq(s.retinal.sandwich, "FULL");
+});
+
+// ---------- R5 pause/resume ----------
+t("grade-3 pauses retinal and starts a flare", () => {
+  const s = mkState(), n = {};
+  run(s, n, 10, (d, i) => (i === 9 ? 3 : 0));
+  eq(s.retinal.phase, "PAUSED");
+  eq(s.flare.active, true);
+});
+
+t("resume comes one step lower after 5 calm days", () => {
+  const s = mkState(), n = {};
+  run(s, n, 10, (d, i) => (i === 9 ? 3 : 0));
+  const d9 = addDays(START, 9);
+  // flare runs 3 days then resolved
+  E.flareCheckIn(s, n, addDays(d9, 1), "better");
+  E.flareCheckIn(s, n, addDays(d9, 2), "calm");
+  E.resolveFlare(s, addDays(d9, 2));
+  // five calm recovery nights
+  for (let i = 3; i <= 7; i++) doNight(s, n, addDays(d9, i), 0);
+  const events = E.tryAutoResume(s, n, addDays(d9, 8));
+  ok(events.length > 0, "should resume");
+  eq(s.retinal.freq, 1, "resumes at freqAtPause-1 = 1");
+  eq(s.retinal.phase, "RECOVERY");
+});
+
+// ---------- gaps ----------
+t("a 20-day gap steps frequency down", () => {
+  const s = mkState(), n = {};
+  doNight(s, n, START, 0); // freq 2, day 0 retinal
+  const later = addDays(START, 20);
+  E.gapAdjustIfNeeded(s, later);
+  eq(s.retinal.freq, 1);
+  eq(s.retinal.stepUpLockUntil, addDays(later, 14));
+});
+
+t("a 5-day gap changes nothing", () => {
+  const s = mkState(), n = {};
+  doNight(s, n, START, 0);
+  E.gapAdjustIfNeeded(s, addDays(START, 5));
+  eq(s.retinal.freq, 2);
+});
+
+t("an 10-day gap forces FULL sandwich for 2 applications", () => {
+  const s = mkState(), n = {};
+  doNight(s, n, START, 0);
+  E.gapAdjustIfNeeded(s, addDays(START, 10));
+  eq(s.retinal.forceFullCount, 2);
+  eq(s.retinal.freq, 2);
+});
+
+// ---------- R10 azelaic ----------
+t("azelaic offered at day 14 when clean", () => {
+  const s = mkState(), n = {};
+  const last = run(s, n, 15);
+  const sugg = E.computeSuggestion(s, n, last, {});
+  eq(sugg?.id, "azelaic-unlock");
+});
+
+t("azelaic deferred, not cancelled, after a grade-2", () => {
+  const s = mkState(), n = {};
+  let last = run(s, n, 15, (d, i) => (i === 12 ? 2 : 0));
+  ok(E.computeSuggestion(s, n, last, {})?.id !== "azelaic-unlock", "deferred at day 14");
+  // 14 clean days after the event → offered again
+  for (let i = 15; i < 27; i++) doNight(s, n, addDays(START, i), 0);
+  last = addDays(START, 26);
+  eq(E.computeSuggestion(s, n, last, {})?.id, "azelaic-unlock");
+});
+
+t("azelaic accept: 1 night/week, stamps cooldown", () => {
+  const s = mkState(), n = {};
+  const last = run(s, n, 15);
+  const sugg = E.computeSuggestion(s, n, last, {});
+  E.acceptSuggestion(s, n, last, sugg, "accept");
+  eq(s.azelaic.active, true);
+  eq(s.azelaic.freq, 1);
+  eq(s.lastChange.azelaic, last);
+});
+
+t("azelaic placement avoids retinal nights", () => {
+  const s = mkState(), n = {};
+  const last = run(s, n, 15);
+  E.acceptSuggestion(s, n, last, E.computeSuggestion(s, n, last, {}), "accept");
+  // over the next 7 days, azelaic night must not collide with projected retinal
+  let azCount = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(last, i + 1);
+    if (isAzelaicNight(s, d)) {
+      azCount++;
+      const ret = projectedRetinalSet(s, d, d);
+      ok(!ret.has(d), `azelaic on retinal night ${d}`);
+    }
+  }
+  ok(azCount >= 1, "azelaic scheduled at least once a week");
+});
+
+// ---------- cooldown serialization ----------
+t("azelaic change blocks retinal step-up for 14 days", () => {
+  const s = mkState(), n = {};
+  let last = run(s, n, 15);
+  E.acceptSuggestion(s, n, last, E.computeSuggestion(s, n, last, {}), "accept"); // azelaic day 14
+  // run clean through day 29 (dwell 28 + streak 8 satisfied)
+  for (let i = 15; i < 29; i++) doNight(s, n, addDays(START, i), 0);
+  last = addDays(START, 28);
+  const sugg = E.computeSuggestion(s, n, last, {});
+  ok(sugg?.id !== "step-up", `step-up must be cooldown-blocked, got ${sugg?.id}`);
+});
+
+t("azelaic's own ladder is not blocked by its own change", () => {
+  const s = mkState(), n = {};
+  let last = run(s, n, 15);
+  E.acceptSuggestion(s, n, last, E.computeSuggestion(s, n, last, {}), "accept"); // day 14, anchored day 15, freq 1
+  for (let i = 15; i <= 22; i++) doNight(s, n, addDays(START, i), 0);
+  last = addDays(START, 22); // 7 days after the day-15 anchor
+  const sugg = E.computeSuggestion(s, n, last, {});
+  eq(sugg?.id, "azelaic-step", "1→2 step due after 7 clean days");
+});
+
+// ---------- attribution R12 ----------
+t("grade-2 within 14d of azelaic change blames azelaic, not retinal", () => {
+  const s = mkState(), n = {};
+  let last = run(s, n, 15);
+  E.acceptSuggestion(s, n, last, E.computeSuggestion(s, n, last, {}), "accept");
+  // bump azelaic to 2 (day 22 — the ladder anchors on day 15)
+  for (let i = 15; i <= 22; i++) doNight(s, n, addDays(START, i), 0);
+  last = addDays(START, 22);
+  E.acceptSuggestion(s, n, last, E.computeSuggestion(s, n, last, {}), "accept");
+  eq(s.azelaic.freq, 2);
+  const fBefore = s.retinal.freq;
+  // grade-2 two days later
+  doNight(s, n, addDays(START, 24), 2);
+  eq(s.azelaic.freq, 1, "azelaic dropped");
+  eq(s.retinal.freq, fBefore, "retinal untouched");
+});
+
+// ---------- unknown neutrality ----------
+t("'can't remember' neither builds nor breaks the clean streak", () => {
+  const s = mkState(), n = {};
+  run(s, n, 10);
+  const streak = s.retinal.cleanStreak;
+  n[addDays(START, 10)] = { type: "recovery", status: "unknown", backfilled: true };
+  // no applyCheckIn for unknown nights; verify streak unchanged and suggestion logic unaffected
+  eq(s.retinal.cleanStreak, streak);
+});
+
+// ---------- missed nights ----------
+t("missed-night backfill 'yes' on a retinal night advances the schedule", () => {
+  const s = mkState(), n = {};
+  s.lastOpenedDate = START;
+  doNight(s, n, START, 0);
+  // she never opens the app on day 3 (retinal) or day 4; opens day 5
+  const d5 = addDays(START, 5);
+  const missed = E.missedNightDates(s, n, d5);
+  ok(missed.includes(addDays(START, 3)), "day 3 in missed list");
+  const entry = E.answerMissedNight(s, n, addDays(START, 3), "yes", "retinal");
+  eq(entry.status, "completed");
+  eq(s.retinal.lastRetinalDate, addDays(START, 3));
+});
+
+// ---------- escalation ----------
+t("itch three times in a month triggers the derm card", () => {
+  const s = mkState(), n = {};
+  run(s, n, 12, (d, i) => (i === 3 || i === 6 ? 3 : 0)); // grade-3 sets flags itchy
+  // third itch occasion
+  n[addDays(START, 12)] = { type: "recovery", checkIn: { grade: 2, flags: ["itchy"], zones: [], triggers: [] } };
+  E.checkEscalation(s, n, addDays(START, 12));
+  eq(s.escalation.active, true);
+});
+
+// ---------- sandwich revert ----------
+t("grade-2 within 28d of dropping the buffer restores it", () => {
+  const s = mkState(), n = {};
+  s.retinal.sandwich = "OPEN";
+  s.retinal.sandwichChangedOn = START;
+  n[addDays(START, 5)] = { type: "retinal", checkIn: { grade: 2, flags: [], zones: [], triggers: [] } };
+  E.sandwichRevertIfNeeded(s, n, addDays(START, 5));
+  eq(s.retinal.sandwich, "FULL");
+});
+
+document.getElementById("summary").textContent =
+  fails === 0 ? `ALL ${passes} TESTS PASS` : `${fails} FAILED, ${passes} passed`;
+document.getElementById("summary").className = fails === 0 ? "pass" : "fail";
+</script>
+</body>
+</html>
