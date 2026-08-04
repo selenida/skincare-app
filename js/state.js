@@ -54,6 +54,12 @@ export function load(todayIso) {
     DB.state.startDate = todayIso;
     DB.state.retinal.dwellStartDate = todayIso;
     DB.state.lastChange = { retinal: todayIso, azelaic: null };
+  } else if (!DB.state.settings.startAdjusted) {
+    // Migration: the start-date tool shipped before its own flag existed.
+    // A backfilled night on the start date means it was already used, so the
+    // first-week hint must not nag about something already fixed.
+    const first = getYearLog(DB.state.startDate.slice(0, 4)).nights[DB.state.startDate];
+    if (first && first.backfilled) DB.state.settings.startAdjusted = true;
   }
   saveState();
   saveProducts();
