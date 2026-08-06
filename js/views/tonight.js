@@ -11,10 +11,10 @@ import { addPhoto } from "../photos.js";
 import { icon, TYPE_ICON, NIGHT_ICON } from "../icons.js";
 
 // transient per-date UI state (check-in stage etc.)
-const ui = { date: null, stage: null, feel: null, flags: [], zones: [], triggers: [], flareTrend: null };
+const ui = { date: null, stage: null, feel: null, flags: [], zones: [], triggers: [], flareTrend: null, noteOpen: false };
 
 function resetUi(date) {
-  if (ui.date !== date) Object.assign(ui, { date, stage: null, feel: null, flags: [], zones: [], triggers: [], flareTrend: null });
+  if (ui.date !== date) Object.assign(ui, { date, stage: null, feel: null, flags: [], zones: [], triggers: [], flareTrend: null, noteOpen: false });
 }
 
 export function renderTonight(root) {
@@ -93,7 +93,7 @@ export function renderTonight(root) {
     // steps
     const steps = stepsFor(state, night);
     const total = steps.filter((s) => !s.optional).length;
-    const done = steps.filter((s) => !s.optional && stepDone(night, s.id)).length;
+    const done = steps.filter((s) => !s.optional && (stepDone(night, s.id) || stepSkipped(night, s.id))).length;
     root.append(h("div", { class: "progress" }, h("i", { style: { width: `${total ? (done / total) * 100 : 0}%` } })));
     root.append(
       h("div", { class: "makeup-toggle", onclick: () => setMakeup(date, night, !night.woreMakeup) },
@@ -111,9 +111,10 @@ export function renderTonight(root) {
         h("button", { class: "btn-sm ghost", onclick: (e) => { e.stopPropagation(); night.extras.splice(i, 1); setNight(date, night); bus.rerender(); } }, "✕")));
     }
     root.append(extraAdder(night, date));
+    root.append(noteCard(night, date, isToday));
 
-    // check-in / flare check-in when all required steps are done
-    const complete = steps.filter((s) => !s.optional).every((s) => stepDone(night, s.id));
+    // check-in / flare check-in when every required step is done or skipped
+    const complete = steps.filter((s) => !s.optional).every((s) => stepDone(night, s.id) || stepSkipped(night, s.id));
     if (complete && !night.checkIn) {
       markCompleted(state, night, date);
       root.append(state.flare.active ? flareCheckInCard(date, nights) : checkInCard(date, night, nights));
@@ -164,6 +165,7 @@ function stepsFor(state, night) {
 }
 
 const stepDone = (night, id) => (night.steps || []).some((s) => s.id === id && s.done);
+const stepSkipped = (night, id) => (night.steps || []).some((s) => s.id === id && s.skipped && !s.done);
 
 function setMakeup(date, night, val) {
   night.woreMakeup = val;
@@ -187,6 +189,14 @@ function stepIconName(s) {
 function stepRow(state, night, date, s) {
   const done = stepDone(night, s.id);
   if (s.kind === "timer") return timerRow(night, date, s, done);
+  if (!done && stepSkipped(night, s.id)) {
+    return h("div", { class: "step skipped", onclick: () => skipStep(state, night, date, s.id) },
+      h("span", { class: "box" }),
+      icon(stepIconName(s), "ic step-ic"),
+      h("span", { class: "step-body" },
+        h("span", { class: "lbl" }, s.label, h("span", { class: "tag" }, "skipped")),
+        h("div", { class: "prod" }, "Not used this night — tap to undo")));
+  }
   return h("div", { class: `step ${done ? "done" : ""} ${s.optional ? "optional" : ""}`, onclick: () => toggleStep(state, night, date, s.id) },
     h("span", { class: "box" }),
     icon(stepIconName(s), "ic step-ic"),
@@ -194,16 +204,40 @@ function stepRow(state, night, date, s) {
       h("span", { class: "lbl" }, s.label, s.optional && h("span", { class: "tag" }, "optional")),
       s.product && h("div", { class: "prod" }, s.product),
       s.note && h("div", { class: "note" }, s.note),
-    )
+    ),
+    !done && !s.optional && h("button", { class: "btn-sm ghost skip-btn", onclick: (e) => { e.stopPropagation(); skipStep(state, night, date, s.id); } }, "skip")
   );
 }
 
 function toggleStep(state, night, date, id) {
   night.steps = night.steps || [];
   const existing = night.steps.find((s) => s.id === id);
-  if (existing) existing.done = !existing.done;
+  if (existing) { existing.done = !existing.done; if (existing.done) existing.skipped = false; }
   else night.steps.push({ id, done: true, at: new Date().toISOString() });
+  // Correcting a skipped retinal after the night was already closed: the
+  // completion pass never counted it, so count it now (only if this is still
+  // the newest retinal night — never rewind the schedule anchor).
+  if (id === "retinal" && night.type === "retinal" && night.status === "completed" &&
+      !night.retinalCounted && stepDone(night, "retinal") &&
+      (!state.retinal.lastRetinalDate || date > state.retinal.lastRetinalDate)) {
+    night.retinalCounted = true;
+    night.retinalSkipped = false;
+    night.sandwich = state.retinal.sandwich;
+    E.onRetinalCompleted(state, date);
+    saveState();
+  }
   setNight(date, night);
+  bus.rerender();
+}
+
+// Skip = "I'm not using this tonight" — the night can complete without it,
+// but nothing is counted as applied. This night only; tomorrow is unaffected.
+function skipStep(state, night, date, id) {
+  night.steps = night.steps || [];
+  const existing = night.steps.find((s) => s.id === id);
+  if (existing) { existing.skipped = !existing.skipped; existing.done = false; }
+  else night.steps.push({ id, skipped: true, at: new Date().toISOString() });
+  setNight(date, night, { message: `Night ${date} — ${id} ${stepSkipped(night, id) ? "skipped" : "unskipped"}` });
   bus.rerender();
 }
 
@@ -265,13 +299,17 @@ function beep() {
 function markCompleted(state, night, date) {
   if (night.status !== "completed") {
     night.status = "completed";
-    if (night.type === "retinal" && !night.retinalCounted) {
+    // A skipped retinal doesn't count as a retinal application: the schedule
+    // anchor stays put (it's still due tomorrow) and the clean streak ignores it.
+    const skippedRetinal = night.type === "retinal" && stepSkipped(night, "retinal");
+    if (skippedRetinal) night.retinalSkipped = true;
+    if (night.type === "retinal" && !night.retinalCounted && !skippedRetinal) {
       night.retinalCounted = true;
       night.sandwich = state.retinal.sandwich;
       E.onRetinalCompleted(state, date);
       saveState();
     }
-    setNight(date, night, { message: `Night ${date} — ${night.type} completed` });
+    setNight(date, night, { message: `Night ${date} — ${night.type} completed${skippedRetinal ? " (retinal skipped)" : ""}` });
   }
 }
 
@@ -514,6 +552,40 @@ function extraAdder(night, date) {
     h("div", { class: "choices" },
       h("button", { class: "choice", onclick: () => { extraOpen = false; bus.rerender(); } }, "Cancel"),
       h("button", { class: "choice primary", onclick: add }, "Add")));
+}
+
+// ---- night note ----
+// Free-text observation attached to the night — for things worth remembering
+// that aren't irritation (tingling, glow, "skin felt tight after sauna").
+// Shows as a small dot on the History calendar.
+function noteCard(night, date, isToday) {
+  if (ui.noteOpen) {
+    const input = h("textarea", { class: "inputline", rows: 3, placeholder: "e.g. slight tingling after the retinal — noticeable but not sore" });
+    input.value = night.note || "";
+    const save = () => {
+      const text = input.value.trim();
+      night.note = text || null;
+      setNight(date, night, { message: `Night ${date} — note` });
+      ui.noteOpen = false;
+      bus.rerender();
+    };
+    return h("div", { class: "card" },
+      h("h3", { style: { fontSize: "16px" } }, isToday ? "Note for tonight" : "Note for this night"),
+      h("p", { class: "sub" }, "Anything you noticed — it doesn't affect the schedule, just your record."),
+      input,
+      h("div", { class: "choices" },
+        h("button", { class: "choice", onclick: () => { ui.noteOpen = false; bus.rerender(); } }, "Cancel"),
+        night.note && h("button", { class: "choice", onclick: () => { input.value = ""; save(); } }, "Remove"),
+        h("button", { class: "choice primary", onclick: save }, "Save")));
+  }
+  if (night.note) {
+    return h("div", { class: "night-note", onclick: () => { ui.noteOpen = true; bus.rerender(); } },
+      icon("sparkle", "ic note-ic"),
+      h("span", { class: "note-body" }, h("span", { class: "note-cap" }, "Your note"), h("div", {}, night.note)),
+      h("span", { class: "note-edit" }, "edit"));
+  }
+  return h("button", { class: "extra-btn", onclick: () => { ui.noteOpen = true; bus.rerender(); } },
+    "+ Note about " + (isToday ? "tonight" : "this night"));
 }
 
 // ---- shared bits ----

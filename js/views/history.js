@@ -69,6 +69,7 @@ function calendar(nights, today) {
     const cell = h("span", { class: `d ${cls}` }, String(d));
     const grade = night?.checkIn?.grade;
     if (grade >= 1) cell.append(h("i", { class: `mk ${grade >= 2 ? "a" : "w"}` }));
+    if (night?.note) cell.append(h("i", { class: "mk n" }));
     grid.append(cell);
   }
 
@@ -81,7 +82,7 @@ function calendar(nights, today) {
     grid,
     h("div", { class: "legend" },
       legend("retinal", "Retinal"), legend("azelaic", "Azelaic"), legend("recovery", "Recovery"),
-      legend("rescue", "Rescue"), legend("missed", "Missed"), legend("dot", "Irritation")));
+      legend("rescue", "Rescue"), legend("missed", "Missed"), legend("dot", "Irritation"), legend("ndot", "Note")));
 }
 
 function shiftMonth(ym, delta) {

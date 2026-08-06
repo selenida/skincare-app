@@ -54,7 +54,7 @@ export function applyCheckIn(state, nights, date, checkIn) {
   const grade = checkIn.grade;
 
   if (grade <= 1) {
-    if (night.type === "retinal" && (night.status === "completed" || allRequiredDone(night))) {
+    if (night.type === "retinal" && !night.retinalSkipped && (night.status === "completed" || allRequiredDone(night))) {
       r.cleanStreak = (r.cleanStreak || 0) + 1;
     }
     return events;

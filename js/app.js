@@ -72,6 +72,15 @@ function boot() {
   sync.onChange = renderHeaderOnly;
   initSyncTriggers();
 
+  // iOS keeps the PWA suspended for days — boot() doesn't re-run on reopen, so
+  // "today" went stale until a manual reload. Recheck whenever we come back to
+  // the foreground and reboot if the logical date moved on.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && logicalToday() !== bus.todayIso) {
+      location.reload();
+    }
+  });
+
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
     // When a new version takes control, reload once so updates land on the
