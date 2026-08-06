@@ -246,6 +246,20 @@ textarea.inputline { resize: vertical; }
 .sw.missed { border: 1.5px dashed #CFCFC9; }
 .sw.dot { background: var(--alert); border-radius: 50%; width: 8px; height: 8px; }
 .sw.ndot { background: #A9A49C; border-radius: 50%; width: 8px; height: 8px; }
+.d.has-note { cursor: pointer; }
+
+/* floating note peek over a calendar day */
+.notepop {
+  position: fixed; z-index: 60; max-width: 240px; background: #3A3833; color: #FAFAF8;
+  border-radius: 11px; padding: 10px 13px; font-size: 13.5px; line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(40, 38, 33, .22); white-space: pre-line;
+  opacity: 0; transform: translateY(5px); transition: opacity .18s, transform .18s;
+}
+.notepop.show { opacity: 1; transform: none; }
+.notepop-date {
+  font-size: 10.5px; font-weight: 640; letter-spacing: .05em; text-transform: uppercase;
+  color: #B9B5AD; margin-bottom: 4px;
+}
 
 /* night note */
 .night-note {

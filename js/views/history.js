@@ -69,7 +69,11 @@ function calendar(nights, today) {
     const cell = h("span", { class: `d ${cls}` }, String(d));
     const grade = night?.checkIn?.grade;
     if (grade >= 1) cell.append(h("i", { class: `mk ${grade >= 2 ? "a" : "w"}` }));
-    if (night?.note) cell.append(h("i", { class: "mk n" }));
+    if (night?.note) {
+      cell.classList.add("has-note");
+      cell.append(h("i", { class: "mk n" }));
+      cell.onclick = () => showNotePop(cell, iso, night.note);
+    }
     grid.append(cell);
   }
 
@@ -83,6 +87,34 @@ function calendar(nights, today) {
     h("div", { class: "legend" },
       legend("retinal", "Retinal"), legend("azelaic", "Azelaic"), legend("recovery", "Recovery"),
       legend("rescue", "Rescue"), legend("missed", "Missed"), legend("dot", "Irritation"), legend("ndot", "Note")));
+}
+
+// Tap a noted day: the note floats briefly above the cell, then fades.
+// Dismisses on its own, on a tap anywhere, or when a new one opens.
+function showNotePop(cell, iso, text) {
+  document.querySelector(".notepop")?.remove();
+  const pop = h("div", { class: "notepop" },
+    h("div", { class: "notepop-date" }, humanShort(iso)),
+    text);
+  document.body.append(pop);
+  const r = cell.getBoundingClientRect();
+  const pr = pop.getBoundingClientRect();
+  const left = Math.max(8, Math.min(window.innerWidth - pr.width - 8, r.left + r.width / 2 - pr.width / 2));
+  pop.style.left = `${left}px`;
+  const above = r.top - pr.height - 8;
+  pop.style.top = `${above >= 8 ? above : r.bottom + 8}px`;
+  setTimeout(() => pop.classList.add("show"), 20);
+  let killed = false;
+  const kill = () => {
+    if (killed) return;
+    killed = true;
+    pop.classList.remove("show");
+    setTimeout(() => pop.remove(), 200);
+    document.removeEventListener("click", onDoc, true);
+  };
+  const onDoc = (e) => { if (!cell.contains(e.target)) kill(); };
+  setTimeout(() => document.addEventListener("click", onDoc, true), 0);
+  setTimeout(kill, 4500);
 }
 
 function shiftMonth(ym, delta) {

@@ -145,6 +145,7 @@ export function renderTonight(root) {
 
   root.append(navRow(date, today));
   attachSwipe(root, date, today);
+  syncWakeLock();
 }
 
 function pillLabel(type, state) {
@@ -267,6 +268,7 @@ function timerRow(night, date, s, done) {
         try { navigator.vibrate && navigator.vibrate(200); } catch {}
         beep();
         toggleStep(DB.state, night, date, s.id);
+        syncWakeLock(); // covers a timer expiring while another tab is open
       }
     };
     const iv = setInterval(tick, 500);
@@ -284,6 +286,36 @@ function timerRow(night, date, s, done) {
   }
   return row;
 }
+
+// ---- screen wake lock ----
+// While a timer counts down the screen must not sleep — she's mid-routine with
+// product on her face. Acquired when a timer runs, released when none do.
+// The OS drops the lock whenever the app is backgrounded; visibilitychange
+// re-acquires it if a timer is still going.
+let wakeLock = null;
+function anyTimerRunning() {
+  const now = Date.now();
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const k = sessionStorage.key(i);
+    if (k && k.startsWith("sc.timer.") && Number(sessionStorage.getItem(k)) > now) return true;
+  }
+  return false;
+}
+async function syncWakeLock() {
+  try {
+    if (anyTimerRunning() && document.visibilityState === "visible") {
+      if (!wakeLock) {
+        wakeLock = await navigator.wakeLock?.request("screen");
+        wakeLock?.addEventListener("release", () => { wakeLock = null; });
+      }
+    } else if (wakeLock) {
+      const l = wakeLock;
+      wakeLock = null;
+      await l.release();
+    }
+  } catch { wakeLock = null; }
+}
+document.addEventListener("visibilitychange", syncWakeLock);
 
 let audioCtx = null;
 function beep() {

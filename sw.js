@@ -1,6 +1,6 @@
 // Service worker — cache-first app shell, network-only for GitHub API.
 // Bump CACHE_VERSION on every deploy or the phone stays on a stale build.
-const CACHE_VERSION = "v8";
+const CACHE_VERSION = "v9";
 const CACHE = `skincare-${CACHE_VERSION}`;
 const SHELL = [
   "./",
